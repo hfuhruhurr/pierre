@@ -8,7 +8,11 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
     import polars as pl
-    return (pl,)
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    import numpy as np
+    from datetime import datetime
+    return np, pl, plt
 
 
 @app.cell
@@ -59,24 +63,6 @@ def _(pl):
 
 
 @app.cell
-def _(cg):
-    cg.head(2)
-    return
-
-
-@app.cell
-def _(cb):
-    cb.head(2)
-    return
-
-
-@app.cell
-def _(investing):
-    investing.head(2)
-    return
-
-
-@app.cell
 def _(pl):
     def reveal_missing_dates(df: pl.DataFrame, date_col: str='date', price_col: str='price') -> pl.DataFrame:
         max_date = df[date_col].max() 
@@ -119,12 +105,19 @@ def _(investing, reveal_missing_dates):
 
 @app.cell
 def _(pl):
-    def calculate_horizon_cagrs(df: pl.DataFrame, horizon: int=365):
-        p = f'{horizon}d'
+    def calculate_horizon_cagrs(df: pl.DataFrame, horizon_days: int=365):
+        # df can have any number of fields, as long as it has "date" and "price"
 
+        # Set the rolling window size
+        p = f'{horizon_days}d'
+
+        # Build a df of all the possible CAGRs
         cagrs = (
             df
+            # Bulletproof df
             .sort(by='date')
+
+            # Create needed columns
             .with_columns(
                 pl.first('date').rolling(index_column='date', period=p).alias('invest_date'),
                 pl.first('price').rolling(index_column='date', period=p).alias('invest_price'),
@@ -132,16 +125,20 @@ def _(pl):
                 pl.last('price').rolling(index_column='date', period=p).alias('mature_price'),
                 pl.count('price').rolling(index_column='date', period=p).alias('n_obs'),
             )
-            # .drop(['date', 'price'])
+            
+            # Keep relevant columns
             .select(['invest_date', 'invest_price', 'mature_date', 'mature_price'])
+            
             # Gather potentially interesting stat (# of data days in rolling window)
             .with_columns(
                 ((pl.col('mature_date') - pl.col('invest_date')).dt.total_days() + 1).alias('n_days')
             )
+            
             # Discard truncated rolling windows
             .filter(
-                pl.col('n_days') == horizon
+                pl.col('n_days') == horizon_days
             )
+            
             # Calculate CAGR
             .with_columns(
                 ((pl.col('mature_price') / pl.col('invest_price'))**(365 / pl.col('n_days')) - 1).alias('cagr')
@@ -149,6 +146,7 @@ def _(pl):
         )
 
         min_date = cagrs['invest_date'].min()
+        max_date = cagrs['mature_date'].max()
         median_cagr = cagrs['cagr'].median()
 
         worst_case = (
@@ -162,17 +160,18 @@ def _(pl):
             worst_case_invest_date = worst_case['invest_date'][0]
             worst_case_cagr = worst_case['cagr'][0]
         else:
-            return horizon / 365.0, None, None, None 
+            return horizon_days / 365.0, None, None, None 
 
-        return horizon / 365.0, worst_case_invest_date, 100 * worst_case_cagr, 100 * median_cagr, min_date
+        return (
+            horizon_days / 365.0, 
+            worst_case_invest_date, 
+            100 * worst_case_cagr, 
+            100 * median_cagr, 
+            min_date, 
+            max_date
+        )
 
     return (calculate_horizon_cagrs,)
-
-
-@app.cell
-def _(calculate_horizon_cagrs, investing):
-    calculate_horizon_cagrs(investing, 365*3)
-    return
 
 
 @app.cell
@@ -191,6 +190,7 @@ def _(calculate_horizon_cagrs, pl):
                 "worst_case_cagr": pl.Float64,
                 "median_cagr": pl.Float64,
                 "first_invest_date": pl.Date,
+                "last_mature_date": pl.Date,
             },
             orient='row'
         )
@@ -206,40 +206,39 @@ def _(calculate_horizon_cagrs, pl):
 
 
 @app.cell
-def _(build_cagrs_df, investing):
-    chart_data_investing = build_cagrs_df(investing)
-    return (chart_data_investing,)
-
-
-@app.cell
-def _(chart_data_investing):
-    chart_data_investing
-    return
-
-
-@app.cell
-def _(pl):
+def _(np, pl, plt):
     def draw_cagr_plot(df: pl.DataFrame):
-        import matplotlib.pyplot as plt
-
-        # Sort the DataFrame by investment horizon if not already sorted
+        # Sort the DataFrame by investment horizon
         df = df.sort('horizon')
+
+        # Get unique years from worst_case_invest_year
+        unique_years = df['worst_case_invest_year'].unique().sort()
+        num_years = len(unique_years)
+
+        # Create discrete colormap: 1 year = 1 color
+        colors = plt.cm.Set1(np.linspace(0, 1, num_years))
+        year_map = {year: idx for idx, year in enumerate(unique_years)}
 
         # Create the plot
         plt.figure(figsize=(10, 6))
-        plt.scatter(
-            df['horizon'],
-            df['worst_case_cagr'], 
-            c=df['worst_case_invest_year'],
-            cmap='Set1',
-            zorder=5,
-            # alpha=0.5,
-            marker='.'
-        )
+        for year in unique_years:
+            mask = df['worst_case_invest_year'] == year
+            plt.scatter(
+                df.filter(mask)['horizon'],
+                df.filter(mask)['worst_case_cagr'],
+                c=[colors[year_map[year]]],
+                label=year,
+                zorder=5,
+                marker='.'
+            )
 
         # Title
+        plt.suptitle('Worst Case CAGR by Investment Horizon')
         min_date = df['first_invest_date'][0]
-        plt.title(f'Worst Case CAGR by Investment Horizon\n(Data Start: {min_date})')
+        max_date = df['last_mature_date'][0]
+        title = f"Data from {min_date} thru {max_date}"
+        title += "\nSource: "
+        plt.title(title, x=0.01, ha='left', fontsize=8)
 
         # Labels
         plt.xlabel('Investment Horizon (Years)')
@@ -258,24 +257,19 @@ def _(pl):
         plt.xlim(0.5, 11.5)
         plt.ylim(-105, 65)
         plt.grid(True, axis='y', linestyle='-', alpha=0.7)
-        plt.colorbar(label='Investment Year')
+
+        # Add legend
+        plt.legend(title='Investment Year', loc='lower right')
 
         # Show the plot
         plt.tight_layout()
         plt.show()
-
     return (draw_cagr_plot,)
 
 
 @app.cell
-def _(chart_data_investing, draw_cagr_plot):
-    draw_cagr_plot(chart_data_investing)
-    return
-
-
-@app.cell
-def _(investing):
-    investing
+def _(build_cagrs_df, cg, draw_cagr_plot):
+    draw_cagr_plot(build_cagrs_df(cg))
     return
 
 
