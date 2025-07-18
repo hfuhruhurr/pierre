@@ -214,7 +214,7 @@ def _(np, pl, plt):
         # Get unique years from worst_case_invest_year
         unique_years = df['worst_case_invest_year'].unique().sort()
         num_years = len(unique_years)
-
+        
         # Create discrete colormap: 1 year = 1 color
         colors = plt.cm.Set1(np.linspace(0, 1, num_years))
         year_map = {year: idx for idx, year in enumerate(unique_years)}
@@ -285,7 +285,7 @@ def _(build_cagrs_df, cg):
 
 @app.cell
 def _(draw_cagr_plot, dude):
-    draw_cagr_plot(dude, True)
+    draw_cagr_plot(dude, False)
     return
 
 
