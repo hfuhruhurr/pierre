@@ -125,20 +125,20 @@ def _(pl):
                 pl.last('price').rolling(index_column='date', period=p).alias('mature_price'),
                 pl.count('price').rolling(index_column='date', period=p).alias('n_obs'),
             )
-            
+
             # Keep relevant columns
             .select(['invest_date', 'invest_price', 'mature_date', 'mature_price'])
-            
+
             # Gather potentially interesting stat (# of data days in rolling window)
             .with_columns(
                 ((pl.col('mature_date') - pl.col('invest_date')).dt.total_days() + 1).alias('n_days')
             )
-            
+
             # Discard truncated rolling windows
             .filter(
                 pl.col('n_days') == horizon_days
             )
-            
+
             # Calculate CAGR
             .with_columns(
                 ((pl.col('mature_price') / pl.col('invest_price'))**(365 / pl.col('n_days')) - 1).alias('cagr')
@@ -207,7 +207,7 @@ def _(calculate_horizon_cagrs, pl):
 
 @app.cell
 def _(np, pl, plt):
-    def draw_cagr_plot(df: pl.DataFrame):
+    def draw_cagr_plot(df: pl.DataFrame, pierre: bool=False):
         # Sort the DataFrame by investment horizon
         df = df.sort('horizon')
 
@@ -221,23 +221,36 @@ def _(np, pl, plt):
 
         # Create the plot
         plt.figure(figsize=(10, 6))
-        for year in unique_years:
-            mask = df['worst_case_invest_year'] == year
-            plt.scatter(
-                df.filter(mask)['horizon'],
-                df.filter(mask)['worst_case_cagr'],
-                c=[colors[year_map[year]]],
-                label=year,
-                zorder=5,
-                marker='.'
+
+        if pierre:
+            # Pierre's chart
+            plt.plot(
+                df['horizon'],
+                df['worst_case_cagr'],
+                color='black',
             )
+        else:
+            # Dude's chart
+            for year in unique_years:
+                mask = df['worst_case_invest_year'] == year
+                plt.scatter(
+                    df.filter(mask)['horizon'],
+                    df.filter(mask)['worst_case_cagr'],
+                    c=[colors[year_map[year]]],
+                    label=year,
+                    zorder=5,
+                    marker='.'
+                )
+
+            # Add legend
+            plt.legend(title='Investment Year', loc='lower right')
 
         # Title
         plt.suptitle('Worst Case CAGR by Investment Horizon')
         min_date = df['first_invest_date'][0]
         max_date = df['last_mature_date'][0]
         title = f"Data from {min_date} thru {max_date}"
-        title += "\nSource: "
+        title += "\nSource: Coingecko"
         plt.title(title, x=0.01, ha='left', fontsize=8)
 
         # Labels
@@ -258,9 +271,6 @@ def _(np, pl, plt):
         plt.ylim(-105, 65)
         plt.grid(True, axis='y', linestyle='-', alpha=0.7)
 
-        # Add legend
-        plt.legend(title='Investment Year', loc='lower right')
-
         # Show the plot
         plt.tight_layout()
         plt.show()
@@ -268,8 +278,14 @@ def _(np, pl, plt):
 
 
 @app.cell
-def _(build_cagrs_df, cg, draw_cagr_plot):
-    draw_cagr_plot(build_cagrs_df(cg))
+def _(build_cagrs_df, cg):
+    dude = build_cagrs_df(cg)
+    return (dude,)
+
+
+@app.cell
+def _(draw_cagr_plot, dude):
+    draw_cagr_plot(dude, True)
     return
 
 
