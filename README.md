@@ -34,3 +34,9 @@ It should be noted that BTC trading didn't even begin until June/July 2010.  Thu
 * Latest date: 2/9/2024
 * Missing dates: none
 * Weird:  data has `Price`, `Open`, `High`, and `Low` columns.  No `Close`.  Thus, one would assume `Price` = `Close` and `Close` = tomorrow's `Open`...but this isn't the case for about 1/3 of the records.  Granted, the magnitude of the deltas are tiny enough to not materially affect decisions but it's frustrating to realize this lack of care in someone's data.
+
+### CoinMarketCap
+* How to obtain:
+    * https://coinmarketcap.com/currencies/bitcoin/
+* Earliest date: 
+* Missing dates: 
